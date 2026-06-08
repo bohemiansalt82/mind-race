@@ -78,9 +78,13 @@
           <div class="bar"><div class="f" id="pf-throttle"></div></div>
         </div>
       </div>
+      <label style="display:flex;align-items:center;gap:0.5rem;margin:0.6rem 0;font-size:0.9rem;cursor:pointer">
+        <input type="checkbox" id="reverse" />
+        스티어링 리버스 (좌우 반대로)
+      </label>
       <p class="sub" style="margin:0.5rem 0">
-        조종기를 움직여 위 막대가 맞게 반응하는지 확인하세요. 맞으면 아래 설정을
-        게임에 쓰면 됩니다 (브라우저에도 자동 저장됨).
+        조종기를 움직여 위 막대가 맞게 반응하는지 확인하세요. 좌우가 반대면 위
+        체크박스를 켜세요. 맞으면 아래 설정을 게임에 쓰면 됩니다 (브라우저에도 저장 가능).
       </p>
       <pre id="json"></pre>
       <div class="controls">
@@ -95,8 +99,9 @@
       const STEPS = [
         { key: 'neutral', title: '① 중립', hint: '스틱/트리거에서 손을 떼고 중립 상태로 두세요.' },
         { key: 'full', title: '② 풀 스로틀 (가속)', hint: '스로틀을 최대 가속까지 당기고 유지하세요.' },
-        { key: 'left', title: '③ 좌 핸들 끝', hint: '핸들을 왼쪽 끝까지 돌리고 유지하세요.' },
-        { key: 'right', title: '④ 우 핸들 끝', hint: '핸들을 오른쪽 끝까지 돌리고 유지하세요.' },
+        { key: 'brake', title: '③ 풀 브레이크', hint: '브레이크를 최대까지 밀고 유지하세요.' },
+        { key: 'left', title: '④ 좌 핸들 끝', hint: '핸들을 왼쪽 끝까지 돌리고 유지하세요.' },
+        { key: 'right', title: '⑤ 우 핸들 끝', hint: '핸들을 오른쪽 끝까지 돌리고 유지하세요.' },
       ];
 
       const $ = (id) => document.getElementById(id);
@@ -162,19 +167,28 @@
       }
 
       function computeResult() {
-        const { neutral, full, left, right } = captures;
+        const { neutral, full, brake, left, right } = captures;
         const steerAxis = argmaxAxisDiff(left, right);
-        const throttleAxis = argmaxAxisDiff(neutral, full, steerAxis);
+        // throttle axis = the non-steer axis that moves most between accel and brake
+        const throttleAxis = argmaxAxisDiff(full, brake, steerAxis);
         calibration = {
           steerAxis,
           throttleAxis,
+          steerReverse: $('reverse')?.checked || false,
           steer: { center: neutral[steerAxis], left: left[steerAxis], right: right[steerAxis] },
-          throttle: { center: neutral[throttleAxis], full: full[throttleAxis] },
+          throttle: { center: neutral[throttleAxis], full: full[throttleAxis], brake: brake[throttleAxis] },
         };
         setCalibration(calibration);
-        $('json').textContent = JSON.stringify(calibration, null, 2);
+        publishResult();
         $('result').style.display = 'block';
         statusEl.innerHTML = `<span class="ok">완료!</span> 조향 = axis ${steerAxis}, 스로틀 = axis ${throttleAxis}. 아래에서 확인하세요.`;
+      }
+
+      function publishResult() {
+        if (!calibration) return;
+        calibration.steerReverse = $('reverse').checked;
+        setCalibration(calibration);
+        $('json').textContent = JSON.stringify(calibration, null, 2);
       }
 
       // live axis bars + result preview
@@ -195,7 +209,8 @@
             .join('');
 
           if (calibration) {
-            const s = mapSteer(pad.axes[calibration.steerAxis] ?? 0, calibration.steer);
+            let s = mapSteer(pad.axes[calibration.steerAxis] ?? 0, calibration.steer);
+            if (calibration.steerReverse) s = -s;
             const t = mapThrottle(pad.axes[calibration.throttleAxis] ?? 0, calibration.throttle);
             setGauge('steer', s);
             setGauge('throttle', t);
@@ -212,9 +227,17 @@
         if (dl !== 0 && Math.sign(a) === Math.sign(dl)) return -clamp(a / dl, 0, 1);
         return 0;
       }
-      function mapThrottle(v, { center, full }) {
-        if (full === center) return 0;
-        return clamp((v - center) / (full - center), -1, 1);
+      function mapThrottle(v, { center, full, brake }) {
+        const a = v - center;
+        if (a === 0) return 0;
+        const df = full - center;
+        if (brake === undefined || brake === null) {
+          return df === 0 ? 0 : clamp((v - center) / df, -1, 1);
+        }
+        const db = brake - center;
+        if (df !== 0 && Math.sign(a) === Math.sign(df)) return clamp(a / df, 0, 1);
+        if (db !== 0 && Math.sign(a) === Math.sign(db)) return -clamp(a / db, 0, 1);
+        return 0;
       }
       function setGauge(name, val) {
         $(`pv-${name}`).textContent = val.toFixed(2);
@@ -226,10 +249,18 @@
         f.style.width = w + '%';
       }
 
+      $('reverse').onchange = () => {
+        publishResult();
+        // keep a saved calibration in sync if one already exists
+        if (calibration && localStorage.getItem('vrcCalibration')) {
+          localStorage.setItem('vrcCalibration', JSON.stringify(calibration));
+        }
+      };
       $('restart').onclick = () => {
         for (const k of Object.keys(captures)) delete captures[k];
         current = 0;
         calibration = null;
+        $('reverse').checked = false;
         $('result').style.display = 'none';
         statusEl.textContent = '처음부터 — ① 중립부터 다시 진행하세요.';
         buildSteps();

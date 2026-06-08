@@ -33,8 +33,9 @@ export const vrcConfig = {
 
 // calibration shape (produced by calibrate.html):
 //   { steerAxis, throttleAxis,
+//     steerReverse: false,
 //     steer:    { center, left, right },
-//     throttle: { center, full } }
+//     throttle: { center, full, brake } }   // brake optional
 let calibration = null;
 
 export function setCalibration(cal) {
@@ -82,10 +83,21 @@ function mapSteer(v, { center, left, right }) {
   return 0;
 }
 
-// Map throttle to -1..1: 0 at neutral, +1 at full accel, brake goes negative.
-function mapThrottle(v, { center, full }) {
-  if (full === center) return 0;
-  return clamp((v - center) / (full - center), -1, 1);
+// Map throttle to -1..1: 0 at neutral, +1 at full accel, -1 at full brake.
+// If `brake` was calibrated, accel and brake travel are handled independently
+// (two-segment, like steering). If not, falls back to a single linear axis.
+function mapThrottle(v, { center, full, brake }) {
+  const a = v - center;
+  if (a === 0) return 0;
+  const df = full - center;
+  if (brake === undefined || brake === null) {
+    if (df === 0) return 0;
+    return clamp((v - center) / df, -1, 1);
+  }
+  const db = brake - center;
+  if (df !== 0 && Math.sign(a) === Math.sign(df)) return clamp(a / df, 0, 1);
+  if (db !== 0 && Math.sign(a) === Math.sign(db)) return -clamp(a / db, 0, 1);
+  return 0;
 }
 
 function applyDeadzone(v, dz) {
@@ -111,7 +123,8 @@ export function pollVRC() {
 
   if (calibration) {
     vrcGamepad.calibrated = true;
-    const s = mapSteer(gp.axes[calibration.steerAxis] ?? 0, calibration.steer);
+    let s = mapSteer(gp.axes[calibration.steerAxis] ?? 0, calibration.steer);
+    if (calibration.steerReverse) s = -s;
     const t = mapThrottle(gp.axes[calibration.throttleAxis] ?? 0, calibration.throttle);
     vrcGamepad.steering = applyDeadzone(s, vrcConfig.deadzone);
     vrcGamepad.throttle = applyDeadzone(t, vrcConfig.deadzone);
