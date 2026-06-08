@@ -8,7 +8,6 @@ function loop(){
   if (started){
     accum += dt;
     while (accum >= physDT){ stepPhysics(physDT); accum -= physDT; }
-    // free-look returns to the normal view as soon as the car starts moving
     if (freeLook.on && Math.hypot(car.vx,car.vz) > 2){ freeLook.on=false; freeLook.drag=false; }
     updateCarVisual();
     updateCamera(dt);
@@ -20,14 +19,15 @@ function loop(){
 // ============================================================
 //  BOOT
 // ============================================================
-function boot(){
+async function boot(){
   clock = new THREE.Clock();
   initThree();
   wireUI();
   wireEditor();
   wireCalibration();
-  renderSavedTracks();
-  el('loadMsg').textContent='준비 완료 — 트랙을 선택하세요';
+  VRC.loadFromServer();           // async, background — updates cal when server responds
+  await renderSavedTracks();      // wait so tracks appear before "준비 완료"
+  el('loadMsg').textContent = '준비 완료 — 트랙을 선택하세요';
   loop();
 }
 boot();

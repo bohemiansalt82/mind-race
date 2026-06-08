@@ -223,13 +223,13 @@ function wireEditor(){
   ['edRx','edRz','edRot'].forEach(id=>el(id).addEventListener('mousedown',()=>{ if(ED.sel>=0) edPush(); }));
   el('edUndo').addEventListener('click', edUndoAction);
   el('edDir').addEventListener('click', ()=>{ edPush(); ED.startDir=(ED.startDir===-1)?1:-1; drawEditor(); });
-  el('edSave').addEventListener('click', ()=>{
-    const name=(el('edName').value||'').trim() || ('내 트랙 '+(loadTracks().length+1));
+  el('edSave').addEventListener('click', async ()=>{
+    const tracks = await loadTracksAPI();
+    const name=(el('edName').value||'').trim() || ('내 트랙 '+(tracks.length+1));
     el('edName').value=name;
-    const arr=loadTracks(); const idx=arr.findIndex(t=>t.name===name); const entry={name, layout:edLayout()};
-    if(idx>=0) arr[idx]=entry; else arr.push(entry); saveTracks(arr);
+    await saveTrackAPI(name, edLayout());
     try{ localStorage.setItem('rcCustomLayout', JSON.stringify(edLayout())); }catch(e){}
-    renderSavedTracks(); el('edStatus').className='ok'; el('edStatus').textContent='✓ "'+name+'" 저장됨 (메인 목록에서 선택 가능)';
+    await renderSavedTracks(); el('edStatus').className='ok'; el('edStatus').textContent='✓ "'+name+'" 저장됨 (메인 목록에서 선택 가능)';
   });
   el('edBgFile').addEventListener('change', e=>{ const f=e.target.files&&e.target.files[0]; if(!f) return;
     const rd=new FileReader(); rd.onload=()=>{ const img=new Image(); img.onload=()=>{

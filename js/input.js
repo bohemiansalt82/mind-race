@@ -13,9 +13,21 @@ const VRC = {
   match: id => /07c0|virtual rc/i.test(id),
   clamp: (v,lo,hi)=>Math.max(lo,Math.min(hi,v)),
   load(){
+    // Sync load from localStorage for immediate use at startup
     try { const r = localStorage.getItem('vrcCalibration'); this.cal = r ? JSON.parse(r) : null; }
     catch { this.cal = null; }
     return this.cal;
+  },
+  async loadFromServer(){
+    try {
+      const r = await fetch('/api/calibration', {signal: AbortSignal.timeout(2000)});
+      if (!r.ok) return;
+      const data = await r.json();
+      if (data) {
+        this.cal = data;
+        localStorage.setItem('vrcCalibration', JSON.stringify(data));
+      }
+    } catch {}
   },
   findPad(){
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];

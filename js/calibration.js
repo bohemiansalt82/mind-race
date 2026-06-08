@@ -90,11 +90,11 @@ function wireCalibration(){
   el('cClose').addEventListener('click', ()=>{ open=false; el('calib').style.display='none'; });
   el('cRestart').addEventListener('click', ()=>reset('처음부터 — ① 중립부터 다시 진행하세요.'));
   el('cReverse').addEventListener('change', ()=>{ if(calib) calib.steerReverse=el('cReverse').checked; });
-  el('cSave').addEventListener('click', ()=>{
+  el('cSave').addEventListener('click', async ()=>{
     if(!calib) return;
     calib.steerReverse=el('cReverse').checked;
-    localStorage.setItem('vrcCalibration', JSON.stringify(calib));
-    VRC.load(); updateBadge();
+    await saveCalibrationAPI(calib);
+    VRC.cal = calib; updateBadge();
     open=false; el('calib').style.display='none';
   });
 
