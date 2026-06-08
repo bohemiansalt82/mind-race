@@ -1,57 +1,98 @@
 // vrc-gamepad.js — read the Virtual RC (VRC) USB dongle through the standard
-// Gamepad API. No WebHID, no driver: Chrome already exposes the dongle as a
-// (non-standard, mapping "") gamepad with 3 axes + 2 buttons.
+// Gamepad API, using a receiver-style calibration (neutral / throttle / left /
+// right). No WebHID, no driver: Chrome exposes the dongle as a (non-standard)
+// gamepad with 3 axes + 2 buttons.
 //
-// Drop this file into your game, call pollVRC() once per frame, and read
-// vrcGamepad.steering / .throttle (-1..1).
+// Get a calibration from calibrate.html (it saves to localStorage and prints a
+// JSON object), then:
 //
-//   import { pollVRC, vrcGamepad } from './vrc-gamepad.js';
+//   import { pollVRC, vrcGamepad, setCalibration } from './vrc-gamepad.js';
+//   setCalibration(myCalibration);          // the object from calibrate.html
 //   function update() {
 //     pollVRC();
 //     car.steering = vrcGamepad.steering;   // -1 (left) .. +1 (right)
-//     car.throttle = vrcGamepad.throttle;   // -1 .. +1
+//     car.throttle = vrcGamepad.throttle;   // +1 accel .. -1 brake, 0 neutral
 //     requestAnimationFrame(update);
 //   }
 //   update();
 //
-// Gamepads only appear after the first input, so move a stick / press a button
-// once. (The browser also fires a 'gamepadconnected' event you can listen for.)
+// If a calibration is saved in localStorage under 'vrcCalibration', it is
+// loaded automatically — so often you don't even pass one in.
 
-// ---- config — tweak these after confirming on the test page ----------------
+const STORAGE_KEY = 'vrcCalibration';
+
+// Default: identify the dongle, and a raw fallback if no calibration exists.
 export const vrcConfig = {
-  // Identify the dongle among all connected gamepads (Chrome id contains the
-  // vendor/product, e.g. "Virtual RC USB (Vendor: 07c0 Product: 1125)").
   matchId: (id) => /07c0|virtual rc/i.test(id),
-
-  steerAxis: 0, // axis that moves when you turn the wheel
-  throttleAxis: 1, // axis that moves when you pull the throttle
-  auxAxis: 2, // 3rd channel (optional)
-
-  invertSteer: false, // set true if left/right is reversed
-  invertThrottle: false, // set true if forward/back is reversed
-
-  deadzone: 0.04, // ignore tiny jitter around center
-
-  // Some RC throttles rest at one end instead of center. If you'd rather have
-  // throttle as 0..1 (rest = 0, full = 1) instead of -1..1, set this true.
-  throttleUnipolar: false,
+  deadzone: 0.04,
+  // fallback axes if uncalibrated
+  steerAxis: 0,
+  throttleAxis: 1,
+  auxAxis: 2,
 };
 
-// ---- live state — read this every frame ------------------------------------
+// calibration shape (produced by calibrate.html):
+//   { steerAxis, throttleAxis,
+//     steer:    { center, left, right },
+//     throttle: { center, full } }
+let calibration = null;
+
+export function setCalibration(cal) {
+  calibration = cal;
+}
+
+export function loadSavedCalibration() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) calibration = JSON.parse(raw);
+  } catch {
+    /* ignore */
+  }
+  return calibration;
+}
+
+export function getCalibration() {
+  return calibration;
+}
+
+// Auto-load on import (browser only).
+if (typeof localStorage !== 'undefined') loadSavedCalibration();
+
 export const vrcGamepad = {
   connected: false,
+  calibrated: false,
   steering: 0, // -1..1
-  throttle: 0, // -1..1  (or 0..1 if throttleUnipolar)
-  aux: 0, // -1..1
+  throttle: 0, // -1..1 (0 = neutral, + = accel, - = brake)
+  aux: 0,
   buttons: [false, false],
   id: null,
 };
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// Map a steering axis value to -1..1 given calibrated center/left/right.
+// Works regardless of axis direction or asymmetric travel.
+function mapSteer(v, { center, left, right }) {
+  const a = v - center;
+  const dr = right - center;
+  const dl = left - center;
+  if (a === 0 || (dr === 0 && dl === 0)) return 0;
+  if (dr !== 0 && Math.sign(a) === Math.sign(dr)) return clamp(a / dr, 0, 1);
+  if (dl !== 0 && Math.sign(a) === Math.sign(dl)) return -clamp(a / dl, 0, 1);
+  return 0;
+}
+
+// Map throttle to -1..1: 0 at neutral, +1 at full accel, brake goes negative.
+function mapThrottle(v, { center, full }) {
+  if (full === center) return 0;
+  return clamp((v - center) / (full - center), -1, 1);
+}
 
 function applyDeadzone(v, dz) {
   return Math.abs(v) < dz ? 0 : v;
 }
 
-// Call once per animation frame. Returns vrcGamepad for convenience.
+// Call once per animation frame.
 export function pollVRC() {
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   let gp = null;
@@ -61,24 +102,27 @@ export function pollVRC() {
       break;
     }
   }
-
   if (!gp) {
     vrcGamepad.connected = false;
     return vrcGamepad;
   }
-
   vrcGamepad.connected = true;
   vrcGamepad.id = gp.id;
 
-  const steer = applyDeadzone(gp.axes[vrcConfig.steerAxis] ?? 0, vrcConfig.deadzone);
-  let throttle = applyDeadzone(gp.axes[vrcConfig.throttleAxis] ?? 0, vrcConfig.deadzone);
-  const aux = gp.axes[vrcConfig.auxAxis] ?? 0;
+  if (calibration) {
+    vrcGamepad.calibrated = true;
+    const s = mapSteer(gp.axes[calibration.steerAxis] ?? 0, calibration.steer);
+    const t = mapThrottle(gp.axes[calibration.throttleAxis] ?? 0, calibration.throttle);
+    vrcGamepad.steering = applyDeadzone(s, vrcConfig.deadzone);
+    vrcGamepad.throttle = applyDeadzone(t, vrcConfig.deadzone);
+  } else {
+    // Uncalibrated raw fallback (assumes centered axes).
+    vrcGamepad.calibrated = false;
+    vrcGamepad.steering = applyDeadzone(gp.axes[vrcConfig.steerAxis] ?? 0, vrcConfig.deadzone);
+    vrcGamepad.throttle = applyDeadzone(gp.axes[vrcConfig.throttleAxis] ?? 0, vrcConfig.deadzone);
+    vrcGamepad.aux = gp.axes[vrcConfig.auxAxis] ?? 0;
+  }
 
-  vrcGamepad.steering = steer * (vrcConfig.invertSteer ? -1 : 1);
-  if (vrcConfig.invertThrottle) throttle = -throttle;
-  vrcGamepad.throttle = vrcConfig.throttleUnipolar ? (throttle + 1) / 2 : throttle;
-  vrcGamepad.aux = aux;
   vrcGamepad.buttons = (gp.buttons || []).map((b) => b.pressed);
-
   return vrcGamepad;
 }
