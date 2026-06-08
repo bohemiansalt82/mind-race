@@ -30,7 +30,8 @@
     </div>
   </div>
   <div id="loadMsg">엔진 로딩 중…</div>
-  <button id="editBtn">🛠 트랙 에디터 — 내 레이아웃 만들기</button>
+  <button id="editBtn">🛠 스튜디오 에디터 — 섬·장애물 레이아웃</button>
+  <button id="reBtn">🏎 레이스웨이 에디터 — 루프 트랙 만들기</button>
   <button id="calibBtn">🎮 조종기 세팅<span class="badge" id="calibBadge">미설정</span></button>
   <div id="savedWrap">
     <div style="font-size:13px;color:#8aa1bf;margin-bottom:8px">💾 저장한 트랙</div>
@@ -73,6 +74,42 @@
       <label>투명도 <span id="vBgOp">—</span></label><input id="edBgOp" type="range" min="0" max="100" value="50">
       <button id="edBgClear" style="margin-top:8px;width:100%;pointer-events:auto;cursor:pointer;padding:6px;font-size:12px;border-radius:6px;border:1px solid rgba(120,160,210,.3);background:rgba(255,255,255,.06);color:#cfe0f5">이미지 제거</button>
       <p class="hint">• 섬을 <b>드래그</b>해서 이동, 클릭하면 핸들·슬라이더로 크기·회전<br>• 레이싱 라인 위를 <b>클릭하면 점이 추가</b>됩니다 (흰 점은 드래그)<br>• 패드 모서리(회색 점)·변을 드래그/클릭해 모양 변경<br>• <b style="color:#ffd13b">노란 S</b> = 스타트 위치, <b style="color:#34d0e0">청록 △</b> = 조정석(카메라) — 드래그로 이동<br>• 빨강 = 통로가 좁거나 겹침 경고</p>
+    </div>
+  </div>
+</div>
+
+<!-- ===== RACEWAY EDITOR ===== -->
+<div id="re">
+  <div id="reTop">
+    <span style="font-weight:800;margin-right:8px">🏎 레이스웨이 에디터</span>
+    <span id="reDbg" style="font-size:11px;color:#6fd0ff;min-width:80px"></span>
+    <button id="reAdd">+ 포인트 추가</button>
+    <button id="reDel">선택 삭제</button>
+    <button id="reDir">⇄ 출발방향</button>
+    <button id="reUndo">↶ 되돌리기</button>
+    <button id="reReset">초기화</button>
+    <span style="flex:1"></span>
+    <input id="reName" type="text" placeholder="트랙 이름" maxlength="28"
+      style="padding:7px 10px;font-size:13px;border-radius:8px;border:1px solid rgba(120,160,210,.35);background:rgba(255,255,255,.06);color:#e8eef5;width:150px">
+    <button id="reSave">💾 저장</button>
+    <button id="rePlay">▶ 플레이</button>
+    <button id="reClose">닫기</button>
+  </div>
+  <div id="reMain">
+    <canvas id="reCanvas" width="900" height="520"></canvas>
+    <div id="rePanel">
+      <div id="reStatus">—</div>
+      <h4>트랙 설정</h4>
+      <label>도로 폭 <span id="reVRoadW">18 u</span></label>
+      <input id="reRoadW" type="range" min="10" max="40" value="18">
+      <div id="reInfo" style="font-size:11px;color:#9fb6d4;margin-top:10px;line-height:1.6"></div>
+      <p class="hint" style="margin-top:14px">
+        • 흰 점을 <b>드래그</b>해 트랙 형태 조정<br>
+        • 트랙 선 위 클릭 → 새 포인트 삽입<br>
+        • 선택 후 <kbd>Del</kbd> 또는 삭제 버튼으로 포인트 제거<br>
+        • <b style="color:#ffd13b">노란 S</b> = 스타트/피니시 — 드래그로 이동<br>
+        • <b style="color:#34d0e0">청록 △</b> = 조정석 카메라 — 드래그로 이동
+      </p>
     </div>
   </div>
 </div>
@@ -177,6 +214,7 @@
 <script src="js/hud.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/editor.js"></script>
+<script src="js/raceway-editor.js"></script>
 <script src="js/calibration.js"></script>
 <script src="js/main.js"></script>
 </body>

@@ -4,9 +4,10 @@
 // ============================================================
 function buildTrack(name){
   if (track && track.group) scene.remove(track.group);
-  track = (name==='offroad') ? makeOffroad()
-        : (name==='raceway') ? makeRaceway()
-        : (name==='custom')  ? makeCustom(customLayout)
+  track = name==='offroad'         ? makeOffroad()
+        : name==='raceway'         ? makeRaceway()
+        : name==='custom'          ? makeCustom(customLayout)
+        : name==='raceway-custom'  ? makeRacewayCustom(customLayout)
         : makeCircuit();
   scene.add(track.group);
   resetCar();
@@ -232,5 +233,69 @@ function makeStudio(){
     heightAt(){ return 0; },
     surfaceAt(){ return 'asphalt'; },
     collide(car){ studioCollide(car, bound, cxc, czc, islands); }
+  };
+}
+
+// ---- RACEWAY CUSTOM — loop track built from the raceway editor ----
+function makeRacewayCustom(L){
+  const rawLoop = catmullLoop(L.line, 16);
+  const roadW   = L.roadW || 18;
+
+  // Compute bounds for ground size
+  let mnx=1e9,mxx=-1e9,mnz=1e9,mxz=-1e9;
+  rawLoop.forEach(p=>{ mnx=Math.min(mnx,p[0]); mxx=Math.max(mxx,p[0]); mnz=Math.min(mnz,p[1]); mxz=Math.max(mxz,p[1]); });
+  const gW=(mxx-mnx)*2+200, gH=(mxz-mnz)*2+200;
+
+  const g = new THREE.Group();
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(gW,gH),
+    new THREE.MeshStandardMaterial({color:0x2c4225, roughness:1}));
+  ground.rotation.x=-Math.PI/2; ground.position.y=-0.01; ground.receiveShadow=true; g.add(ground);
+
+  const road = ribbon(rawLoop, roadW, 0x2b2f36);
+  road.position.y=0.02; road.receiveShadow=true; g.add(road);
+
+  const curbIn  = ribbonEdge(rawLoop, roadW-2.2, -1, 1.1, 0xcf3b3b);
+  const curbOut = ribbonEdge(rawLoop, roadW-2.2,  1, 1.1, 0xe8e8e8);
+  curbIn.position.y=0.05; curbOut.position.y=0.05; g.add(curbIn); g.add(curbOut);
+
+  const WALL_H=CAR_H*0.5, wallOff=roadW/2-0.2;
+  g.add(wallRibbon(rawLoop, wallOff, -1, WALL_H, 0x39424f));
+  g.add(wallRibbon(rawLoop, wallOff,  1, WALL_H, 0x39424f));
+
+  // Rotate loop so it starts at the chosen start point
+  let loop = rawLoop;
+  if(L.start){
+    let bi=0,bd=1e18;
+    for(let i=0;i<loop.length;i++){const dx=loop[i][0]-L.start[0],dz=loop[i][1]-L.start[1];const d=dx*dx+dz*dz;if(d<bd){bd=d;bi=i;}}
+    loop=loop.slice(bi).concat(loop.slice(0,bi));
+  }
+  if(L.startDir===-1){ loop=[loop[0]].concat(loop.slice(1).reverse()); }
+
+  paintStartLine(g, loop[0], loop[1], roadW);
+  const cps = sampleCheckpoints(loop, 6, roadW/2-2);
+  const startDir = Math.atan2(loop[1][0]-loop[0][0], loop[1][1]-loop[0][1]);
+
+  let camPos=null;
+  if(L.cam){
+    const size=Math.max(mxx-mnx, mxz-mnz);
+    camPos={x:L.cam[0], y:size*0.085, z:L.cam[1]};
+  }
+
+  return {
+    group:g, name:'raceway-custom', camPos,
+    start:{x:loop[0][0], z:loop[0][1], yaw:startDir},
+    checkpoints:cps, loop, roadW,
+    edgeLimit: roadW/2-0.9,
+    heightAt(x,z){
+      const d=distToLoop(loop,x,z), half=roadW/2;
+      if(d>half-2.0 && d<half-0.9) return 0.16;
+      return 0;
+    },
+    surfaceAt(x,z){
+      const d=distToLoop(loop,x,z), half=roadW/2;
+      if(d<half-2.0) return 'asphalt';
+      if(d<half-0.9) return 'curb';
+      return 'grass';
+    }
   };
 }

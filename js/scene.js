@@ -20,7 +20,7 @@ function initThree(){
   // drag-to-look before the car starts moving
   const dom=renderer.domElement; dom.style.touchAction='none';
   const lookPt=e=>(e.touches&&e.touches[0])||e;
-  dom.addEventListener('pointerdown', e=>{ if(!started || ED.open) return; const t=lookPt(e);
+  dom.addEventListener('pointerdown', e=>{ if(!started || ED.open || RWE.open) return; const t=lookPt(e);
     freeLook.on=true; freeLook.drag=true; freeLook.lx=t.clientX; freeLook.ly=t.clientY; });
   window.addEventListener('pointermove', e=>{ if(!freeLook.drag) return; const t=lookPt(e);
     freeLook.az -= (t.clientX-freeLook.lx)*0.006;

@@ -24,6 +24,7 @@ async function boot(){
   initThree();
   wireUI();
   wireEditor();
+  wireRacewayEditor();
   wireCalibration();
   VRC.loadFromServer();           // async, background — updates cal when server responds
   await renderSavedTracks();      // wait so tracks appear before "준비 완료"

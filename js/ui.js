@@ -74,12 +74,14 @@ async function renderSavedTracks(){
     const t = tracks.find(x => String(x.id) === b.dataset.id);
     if (!t) return;
     customLayout = JSON.parse(JSON.stringify(t.layout));
-    trackName = 'custom'; startGame();
+    trackName = t.layout.type === 'raceway' ? 'raceway-custom' : 'custom';
+    startGame();
   });
   wrap.querySelectorAll('.sEdit').forEach(b => b.onclick = () => {
     const t = tracks.find(x => String(x.id) === b.dataset.id);
     if (!t) return;
-    openEditor(t.layout, t.name);
+    if (t.layout.type === 'raceway') openRacewayEditor(t.layout, t.name);
+    else openEditor(t.layout, t.name);
   });
   wrap.querySelectorAll('.sDel').forEach(b => b.onclick = async () => {
     await deleteTrackAPI(b.dataset.id);
