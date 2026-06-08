@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RC Sim Pro — 웹 RC카 시뮬레이터</title>
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<div id="app"></div>
+
+<div id="intro">
+  <h1>RC SIM PRO</h1>
+  <p>실제 1/10 스케일 전동 RC카 스펙(차중 1.6 kg · 540 브러시리스 · 휠베이스 210 mm · 68 mm 타이어)을 적용한 타이어 슬립 물리 시뮬레이터. 무게 이동 · 서스펜션 · 드리프트 · 노면별 그립을 실시간 계산합니다. 트랙을 선택하세요.</p>
+  <div id="trackPick">
+    <div class="tcard" data-track="raceway">
+      <h2>🏎️ 카트 레이스웨이</h2>
+      <span>실제 카트 서킷을 본뜬 테크니컬 온로드 트랙 — 헤어핀과 연속 S자, 빨강·흰색 커브가 있는 정통 레이아웃.</span>
+      <div class="tag">TECHNICAL · ON-ROAD</div>
+    </div>
+    <div class="tcard" data-track="circuit">
+      <h2>🏁 온로드 서킷</h2>
+      <span>매끄러운 아스팔트 그립. 고속 코너링과 정밀한 라인이 핵심인 투어링카 서킷.</span>
+      <div class="tag">HIGH GRIP · TOURING</div>
+    </div>
+    <div class="tcard" data-track="offroad">
+      <h2>🏜️ 오프로드 버기</h2>
+      <span>점프 · 범프 · 낮은 그립의 흙길. 서스펜션과 무게중심을 다루는 버기 트랙.</span>
+      <div class="tag">LOW GRIP · JUMPS</div>
+    </div>
+  </div>
+  <div id="loadMsg">엔진 로딩 중…</div>
+  <button id="editBtn">🛠 트랙 에디터 — 내 레이아웃 만들기</button>
+  <button id="calibBtn">🎮 조종기 세팅<span class="badge" id="calibBadge">미설정</span></button>
+  <div id="savedWrap">
+    <div style="font-size:13px;color:#8aa1bf;margin-bottom:8px">💾 저장한 트랙</div>
+    <div id="savedTracks"></div>
+  </div>
+</div>
+
+<div id="editor">
+  <div id="edTop">
+    <span style="font-weight:800; margin-right:8px">🛠 트랙 에디터</span>
+    <span id="edDbg" style="font-size:11px;color:#6fd0ff;min-width:80px"></span>
+    <button id="edAdd">+ 섬 추가</button>
+    <button id="edAddHalf">+ 반달 섬</button>
+    <button id="edBar">+ 바리케이트</button>
+    <button id="edDel">선택 삭제</button>
+    <button id="edDir">⇄ 출발방향</button>
+    <button id="edUndo">↶ 되돌리기</button>
+    <button id="edReset">초기화</button>
+    <span style="flex:1"></span>
+    <input id="edName" type="text" placeholder="트랙 이름" maxlength="28"
+      style="padding:7px 10px;font-size:13px;border-radius:8px;border:1px solid rgba(120,160,210,.35);background:rgba(255,255,255,.06);color:#e8eef5;width:150px">
+    <button id="edSave">💾 저장</button>
+    <button id="edPlay">▶ 플레이</button>
+    <button id="edClose">닫기</button>
+  </div>
+  <div id="edMain">
+    <canvas id="edCanvas" width="900" height="520"></canvas>
+    <div id="edPanel">
+      <div id="edStatus">—</div>
+      <h4>선택한 섬</h4>
+      <label>가로 폭 <span id="vRx">—</span></label><input id="edRx" type="range" min="8" max="70" value="26">
+      <label>세로 폭 <span id="vRz">—</span></label><input id="edRz" type="range" min="6" max="50" value="15">
+      <label>회전 <span id="vRot">—</span></label><input id="edRot" type="range" min="-90" max="90" value="0">
+      <h4>아스팔트 패드</h4>
+      <p class="hint">패드 네 모서리(회색 사각형)를 드래그해 모양을 바꿉니다.</p>
+      <h4>배경 이미지 (트레이싱)</h4>
+      <input id="edBgFile" type="file" accept="image/*" style="font-size:11px;width:100%;color:#9fb6d4">
+      <label>가로 <span id="vBgW">—</span></label><input id="edBgW" type="range" min="80" max="760" value="410">
+      <label>세로 <span id="vBgH">—</span></label><input id="edBgH" type="range" min="60" max="520" value="236">
+      <label>투명도 <span id="vBgOp">—</span></label><input id="edBgOp" type="range" min="0" max="100" value="50">
+      <button id="edBgClear" style="margin-top:8px;width:100%;pointer-events:auto;cursor:pointer;padding:6px;font-size:12px;border-radius:6px;border:1px solid rgba(120,160,210,.3);background:rgba(255,255,255,.06);color:#cfe0f5">이미지 제거</button>
+      <p class="hint">• 섬을 <b>드래그</b>해서 이동, 클릭하면 핸들·슬라이더로 크기·회전<br>• 레이싱 라인 위를 <b>클릭하면 점이 추가</b>됩니다 (흰 점은 드래그)<br>• 패드 모서리(회색 점)·변을 드래그/클릭해 모양 변경<br>• <b style="color:#ffd13b">노란 S</b> = 스타트 위치, <b style="color:#34d0e0">청록 △</b> = 조정석(카메라) — 드래그로 이동<br>• 빨강 = 통로가 좁거나 겹침 경고</p>
+    </div>
+  </div>
+</div>
+
+<div id="calib">
+  <div class="calibBox">
+    <h2>🎮 조종기 세팅</h2>
+    <p class="csub">수신기 세팅하듯 각 단계에서 조종기를 그 위치에 두고 <b>설정 완료</b>를 누르세요.
+      Chrome/Edge에서 VRC 동글이 연결돼 있어야 합니다. (게임패드는 첫 입력이 있어야 인식됩니다 — 스틱을 한 번 움직여 주세요.)</p>
+    <div id="cStatus">동글 인식 대기 중…</div>
+    <div id="cSteps"></div>
+    <div id="cLive"></div>
+    <div id="cResult" style="display:none">
+      <div class="cgauges">
+        <div class="cgauge"><div class="glab"><span>조향</span><span id="gvSteer">0.00</span></div>
+          <div class="gbar"><div class="gf" id="gfSteer"></div></div></div>
+        <div class="cgauge"><div class="glab"><span>스로틀</span><span id="gvThrottle">0.00</span></div>
+          <div class="gbar"><div class="gf" id="gfThrottle"></div></div></div>
+      </div>
+      <label class="crev"><input type="checkbox" id="cReverse"> 스티어링 리버스 (좌우 반대로)</label>
+      <p class="csub" style="margin:0">조종기를 움직여 위 막대가 맞게 반응하는지 확인하세요. 좌우가 반대면 위 체크박스를 켜고 저장하세요.</p>
+    </div>
+    <div class="cBtns">
+      <button id="cRestart">처음부터</button>
+      <button id="cSave" disabled>저장하고 닫기</button>
+      <button id="cClose">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div id="cd"><span></span></div>
+
+<div id="hud">
+  <div id="lapFlash"></div>
+  <div id="timing" class="panel">
+    <div id="lapCount">LAP 0</div>
+    <div id="curTime">0.000</div>
+    <div class="row"><span class="lab">LAST</span><span class="val" id="lastT">--.---</span></div>
+    <div class="row"><span class="lab">BEST</span><span class="val" id="bestT">--.---</span></div>
+    <div class="row"><span class="lab">DELTA</span><span class="val" id="deltaT">--.---</span></div>
+  </div>
+
+  <div id="speedo" class="panel">
+    <div id="spdVal">0</div>
+    <div id="spdUnit">KM/H · 실제속도</div>
+    <div id="spdScale" style="font-size:11px;color:#5f7a98;margin-top:1px">0 km/h scale</div>
+    <div id="rpmBar"><div id="rpmFill"></div></div>
+    <div id="gearRow"><span id="gearTxt">N</span><span id="surfTxt">—</span></div>
+  </div>
+
+  <div id="homeBtn" class="panel">🏠 메인</div>
+  <div id="setupBtn" class="panel">⚙ 셋업</div>
+  <div id="setup" class="panel">
+    <h3>차량 셋업</h3>
+    <label>스티어링 각도 <span id="vSteer">38°</span></label>
+    <input id="sSteer" type="range" min="20" max="52" value="38">
+    <label>리어 그립 (안정성) <span id="vGrip">100%</span></label>
+    <input id="sGrip" type="range" min="70" max="135" value="100">
+    <label>엔진 출력 <span id="vPow">100%</span></label>
+    <input id="sPow" type="range" min="60" max="160" value="100">
+    <label>출발 부드러움 (트랙션) <span id="vLaunch">35%</span></label>
+    <input id="sLaunch" type="range" min="0" max="100" value="35">
+    <label>조정석 높이 <span id="vCamH">100%</span></label>
+    <input id="sCamH" type="range" min="20" max="300" value="100">
+    <label>서스펜션 강성 <span id="vSus">50%</span></label>
+    <input id="sSus" type="range" min="0" max="100" value="50">
+    <label>구동 방식</label>
+    <div class="seg" id="drive">
+      <button data-d="rwd">RWD</button>
+      <button data-d="awd" class="on">AWD</button>
+      <button data-d="fwd">FWD</button>
+    </div>
+    <label style="margin-top:14px">카메라</label>
+    <div class="seg" id="camseg">
+      <button data-c="track" class="on">트래킹</button>
+      <button data-c="full">전체</button>
+      <button data-c="car">자동차</button>
+    </div>
+  </div>
+
+  <div id="help" class="panel">
+    <b>조작</b><br>
+    <kbd>W</kbd>/<kbd>↑</kbd> 가속 &nbsp; <kbd>S</kbd>/<kbd>↓</kbd> 브레이크·후진<br>
+    <kbd>A</kbd><kbd>D</kbd>/<kbd>←</kbd><kbd>→</kbd> 조향 &nbsp; <kbd>Shift</kbd> 핸드브레이크<br>
+    <kbd>Space</kbd>/<kbd>C</kbd> 시점 전환 (트래킹·전체·자동차) &nbsp; <kbd>R</kbd> 리셋
+  </div>
+</div>
+
+<!-- Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<!-- Game scripts — order matters (globals first, main last) -->
+<script src="js/globals.js"></script>
+<script src="js/input.js"></script>
+<script src="js/timing.js"></script>
+<script src="js/track-helpers.js"></script>
+<script src="js/tracks.js"></script>
+<script src="js/physics.js"></script>
+<script src="js/car.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/calibration.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
