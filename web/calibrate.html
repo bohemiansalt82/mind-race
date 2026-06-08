@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VRC 동글 캘리브레이션</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        font-family: -apple-system, system-ui, sans-serif;
+        background: #0f1115; color: #e6e9ef; margin: 0; padding: 2rem;
+        max-width: 680px; margin-inline: auto;
+      }
+      h1 { font-size: 1.3rem; margin: 0 0 0.25rem; }
+      p.sub { color: #8b93a7; margin: 0 0 1.5rem; }
+      .step {
+        background: #161922; border: 1px solid #232838; border-radius: 12px;
+        padding: 1.1rem 1.2rem; margin: 0.8rem 0; opacity: 0.45; transition: opacity 0.2s;
+      }
+      .step.active { opacity: 1; border-color: #3b82f6; }
+      .step.done { opacity: 1; border-color: #34d399; }
+      .step .head { display: flex; justify-content: space-between; align-items: center; }
+      .step h2 { font-size: 1rem; margin: 0; }
+      .step .hint { color: #8b93a7; font-size: 0.85rem; margin: 0.35rem 0 0; }
+      .step .captured { color: #34d399; font-size: 0.8rem; margin-top: 0.5rem; font-variant-numeric: tabular-nums; }
+      button {
+        background: #3b82f6; color: white; border: 0; border-radius: 8px;
+        padding: 0.5rem 1rem; font-size: 0.9rem; cursor: pointer;
+      }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.ghost { background: #2a2f3a; }
+      .bars { margin-top: 0.6rem; }
+      .row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; font-variant-numeric: tabular-nums; margin: 2px 0; }
+      .row .name { width: 48px; color: #8b93a7; }
+      .row .val { width: 52px; text-align: right; }
+      .track { position: relative; flex: 1; height: 10px; background: #1b1f29; border-radius: 5px; overflow: hidden; }
+      .center-mark { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #4b5366; }
+      .fill { position: absolute; top: 0; bottom: 0; background: #3b82f6; }
+      #status { margin: 1rem 0; font-size: 0.9rem; }
+      .err { color: #f87171; }
+      .ok { color: #34d399; }
+      #result { margin-top: 1.5rem; display: none; }
+      .preview { display: flex; gap: 1.5rem; margin: 0.8rem 0; }
+      .gauge { flex: 1; }
+      .gauge .lbl { font-size: 0.8rem; color: #8b93a7; display: flex; justify-content: space-between; }
+      .gauge .bar { height: 16px; background: #1b1f29; border-radius: 8px; position: relative; overflow: hidden; margin-top: 4px; }
+      .gauge .bar .f { position: absolute; top: 0; bottom: 0; left: 50%; background: #34d399; }
+      pre { background: #11141b; border: 1px solid #232838; border-radius: 8px; padding: 0.9rem; overflow: auto; font-size: 0.8rem; }
+      .controls { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <h1>VRC 동글 캘리브레이션</h1>
+    <p class="sub">
+      수신기 세팅하듯 단계별로 진행합니다. 각 단계에서 조종기를 그 위치에 두고
+      <b>설정 완료</b>를 누르세요. Chrome/Edge에서 동글이 연결돼 있어야 합니다.
+    </p>
+
+    <div id="status">동글 인식 대기 중 — 조종기 스틱을 한 번 움직여 주세요…</div>
+
+    <div id="steps"></div>
+
+    <div class="bars" id="live"></div>
+
+    <div class="controls">
+      <button id="restart" class="ghost">처음부터</button>
+    </div>
+
+    <div id="result">
+      <h2 style="font-size:1.05rem">결과 — 적용 미리보기</h2>
+      <div class="preview">
+        <div class="gauge">
+          <div class="lbl"><span>조향 (steering)</span><span id="pv-steer">0.00</span></div>
+          <div class="bar"><div class="f" id="pf-steer"></div></div>
+        </div>
+        <div class="gauge">
+          <div class="lbl"><span>스로틀 (throttle)</span><span id="pv-throttle">0.00</span></div>
+          <div class="bar"><div class="f" id="pf-throttle"></div></div>
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:0.5rem;margin:0.6rem 0;font-size:0.9rem;cursor:pointer">
+        <input type="checkbox" id="reverse" />
+        스티어링 리버스 (좌우 반대로)
+      </label>
+      <p class="sub" style="margin:0.5rem 0">
+        조종기를 움직여 위 막대가 맞게 반응하는지 확인하세요. 좌우가 반대면 위
+        체크박스를 켜세요. 맞으면 아래 설정을 게임에 쓰면 됩니다 (브라우저에도 저장 가능).
+      </p>
+      <pre id="json"></pre>
+      <div class="controls">
+        <button id="copy">설정 복사</button>
+        <button id="save" class="ghost">브라우저에 저장</button>
+      </div>
+    </div>
+
+    <script type="module">
+      import { setCalibration, vrcConfig } from './vrc-gamepad.js';
+
+      const STEPS = [
+        { key: 'neutral', title: '① 중립', hint: '스틱/트리거에서 손을 떼고 중립 상태로 두세요.' },
+        { key: 'full', title: '② 풀 스로틀 (가속)', hint: '스로틀을 최대 가속까지 당기고 유지하세요.' },
+        { key: 'brake', title: '③ 풀 브레이크', hint: '브레이크를 최대까지 밀고 유지하세요.' },
+        { key: 'left', title: '④ 좌 핸들 끝', hint: '핸들을 왼쪽 끝까지 돌리고 유지하세요.' },
+        { key: 'right', title: '⑤ 우 핸들 끝', hint: '핸들을 오른쪽 끝까지 돌리고 유지하세요.' },
+      ];
+
+      const $ = (id) => document.getElementById(id);
+      const stepsEl = $('steps');
+      const liveEl = $('live');
+      const statusEl = $('status');
+
+      let current = 0;
+      const captures = {}; // key -> number[] (axes snapshot)
+      let calibration = null;
+
+      function findPad() {
+        for (const p of navigator.getGamepads?.() || []) {
+          if (p && vrcConfig.matchId(p.id)) return p;
+        }
+        return null;
+      }
+
+      function buildSteps() {
+        stepsEl.innerHTML = '';
+        STEPS.forEach((s, i) => {
+          const div = document.createElement('div');
+          div.className = 'step' + (i === current ? ' active' : '') + (captures[s.key] ? ' done' : '');
+          div.id = `step-${s.key}`;
+          const cap = captures[s.key]
+            ? `<div class="captured">기록됨: [${captures[s.key].map((v) => v.toFixed(3)).join(', ')}]</div>`
+            : '';
+          div.innerHTML = `<div class="head"><h2>${s.title}</h2>
+            <button data-i="${i}" ${i === current ? '' : 'disabled'}>${captures[s.key] ? '다시' : '설정 완료'}</button></div>
+            <p class="hint">${s.hint}</p>${cap}`;
+          stepsEl.appendChild(div);
+        });
+        stepsEl.querySelectorAll('button[data-i]').forEach((b) => {
+          b.onclick = () => capture(Number(b.dataset.i));
+        });
+      }
+
+      function capture(i) {
+        const pad = findPad();
+        if (!pad) {
+          statusEl.innerHTML = '<span class="err">동글이 안 보입니다. 스틱을 움직여 보세요.</span>';
+          return;
+        }
+        const s = STEPS[i];
+        captures[s.key] = [...pad.axes];
+        if (i === current && current < STEPS.length - 1) current++;
+        buildSteps();
+        if (Object.keys(captures).length === STEPS.length) computeResult();
+      }
+
+      function argmaxAxisDiff(a, b, exclude = -1) {
+        let best = -1,
+          bestVal = -1;
+        for (let i = 0; i < a.length; i++) {
+          if (i === exclude) continue;
+          const d = Math.abs(a[i] - b[i]);
+          if (d > bestVal) {
+            bestVal = d;
+            best = i;
+          }
+        }
+        return best;
+      }
+
+      function computeResult() {
+        const { neutral, full, brake, left, right } = captures;
+        const steerAxis = argmaxAxisDiff(left, right);
+        // throttle axis = the non-steer axis that moves most between accel and brake
+        const throttleAxis = argmaxAxisDiff(full, brake, steerAxis);
+        calibration = {
+          steerAxis,
+          throttleAxis,
+          steerReverse: $('reverse')?.checked || false,
+          steer: { center: neutral[steerAxis], left: left[steerAxis], right: right[steerAxis] },
+          throttle: { center: neutral[throttleAxis], full: full[throttleAxis], brake: brake[throttleAxis] },
+        };
+        setCalibration(calibration);
+        publishResult();
+        $('result').style.display = 'block';
+        statusEl.innerHTML = `<span class="ok">완료!</span> 조향 = axis ${steerAxis}, 스로틀 = axis ${throttleAxis}. 아래에서 확인하세요.`;
+      }
+
+      function publishResult() {
+        if (!calibration) return;
+        calibration.steerReverse = $('reverse').checked;
+        setCalibration(calibration);
+        $('json').textContent = JSON.stringify(calibration, null, 2);
+      }
+
+      // live axis bars + result preview
+      function renderLive() {
+        const pad = findPad();
+        if (pad) {
+          if (statusEl.textContent.includes('대기 중')) statusEl.innerHTML = '<span class="ok">동글 인식됨.</span> 단계별로 진행하세요.';
+          liveEl.innerHTML = pad.axes
+            .map((a, i) => {
+              const pct = ((a + 1) / 2) * 100;
+              const left = Math.min(50, pct);
+              const w = Math.abs(pct - 50);
+              return `<div class="row"><span class="name">axis ${i}</span>
+                <div class="track"><div class="center-mark"></div>
+                <div class="fill" style="left:${left}%;width:${w}%"></div></div>
+                <span class="val">${a.toFixed(3)}</span></div>`;
+            })
+            .join('');
+
+          if (calibration) {
+            let s = mapSteer(pad.axes[calibration.steerAxis] ?? 0, calibration.steer);
+            if (calibration.steerReverse) s = -s;
+            const t = mapThrottle(pad.axes[calibration.throttleAxis] ?? 0, calibration.throttle);
+            setGauge('steer', s);
+            setGauge('throttle', t);
+          }
+        }
+        requestAnimationFrame(renderLive);
+      }
+
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+      function mapSteer(v, { center, left, right }) {
+        const a = v - center, dr = right - center, dl = left - center;
+        if (a === 0) return 0;
+        if (dr !== 0 && Math.sign(a) === Math.sign(dr)) return clamp(a / dr, 0, 1);
+        if (dl !== 0 && Math.sign(a) === Math.sign(dl)) return -clamp(a / dl, 0, 1);
+        return 0;
+      }
+      function mapThrottle(v, { center, full, brake }) {
+        const a = v - center;
+        if (a === 0) return 0;
+        const df = full - center;
+        if (brake === undefined || brake === null) {
+          return df === 0 ? 0 : clamp((v - center) / df, -1, 1);
+        }
+        const db = brake - center;
+        if (df !== 0 && Math.sign(a) === Math.sign(df)) return clamp(a / df, 0, 1);
+        if (db !== 0 && Math.sign(a) === Math.sign(db)) return -clamp(a / db, 0, 1);
+        return 0;
+      }
+      function setGauge(name, val) {
+        $(`pv-${name}`).textContent = val.toFixed(2);
+        const pct = ((val + 1) / 2) * 100;
+        const left = Math.min(50, pct);
+        const w = Math.abs(pct - 50);
+        const f = $(`pf-${name}`);
+        f.style.left = left + '%';
+        f.style.width = w + '%';
+      }
+
+      $('reverse').onchange = () => {
+        publishResult();
+        // keep a saved calibration in sync if one already exists
+        if (calibration && localStorage.getItem('vrcCalibration')) {
+          localStorage.setItem('vrcCalibration', JSON.stringify(calibration));
+        }
+      };
+      $('restart').onclick = () => {
+        for (const k of Object.keys(captures)) delete captures[k];
+        current = 0;
+        calibration = null;
+        $('reverse').checked = false;
+        $('result').style.display = 'none';
+        statusEl.textContent = '처음부터 — ① 중립부터 다시 진행하세요.';
+        buildSteps();
+      };
+      $('copy').onclick = async () => {
+        await navigator.clipboard.writeText(JSON.stringify(calibration));
+        $('copy').textContent = '복사됨!';
+        setTimeout(() => ($('copy').textContent = '설정 복사'), 1200);
+      };
+      $('save').onclick = () => {
+        localStorage.setItem('vrcCalibration', JSON.stringify(calibration));
+        $('save').textContent = '저장됨!';
+        setTimeout(() => ($('save').textContent = '브라우저에 저장'), 1200);
+      };
+
+      if (!('getGamepads' in navigator)) {
+        statusEl.innerHTML = '<span class="err">이 브라우저는 Gamepad API를 지원하지 않습니다. Chrome/Edge를 쓰세요.</span>';
+      }
+      buildSteps();
+      requestAnimationFrame(renderLive);
+    </script>
+  </body>
+</html>

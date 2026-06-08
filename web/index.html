@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VRC Dongle — WebHID demo</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        font-family: -apple-system, system-ui, sans-serif;
+        background: #0f1115;
+        color: #e6e9ef;
+        margin: 0;
+        padding: 2rem;
+        max-width: 720px;
+        margin-inline: auto;
+      }
+      h1 { font-size: 1.25rem; margin: 0 0 0.25rem; }
+      p.sub { color: #8b93a7; margin: 0 0 1.5rem; }
+      button {
+        background: #3b82f6; color: white; border: 0; border-radius: 8px;
+        padding: 0.6rem 1.1rem; font-size: 0.95rem; cursor: pointer;
+      }
+      button.secondary { background: #2a2f3a; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      #status { margin: 1rem 0; font-size: 0.9rem; }
+      .ok { color: #34d399; }
+      .err { color: #f87171; }
+      .channel { margin: 0.9rem 0; }
+      .channel .label {
+        display: flex; justify-content: space-between;
+        font-variant-numeric: tabular-nums; font-size: 0.85rem; color: #aab2c5;
+      }
+      .track {
+        position: relative; height: 18px; background: #1b1f29;
+        border-radius: 9px; overflow: hidden; margin-top: 4px;
+      }
+      .fill { position: absolute; inset: 0 100% 0 0; background: #3b82f6; transition: right 0.03s linear; }
+      .center-mark {
+        position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #4b5366;
+      }
+      .buttons { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
+      .btn-dot {
+        width: 34px; height: 34px; border-radius: 8px; background: #1b1f29;
+        display: grid; place-items: center; font-size: 0.7rem; color: #8b93a7;
+      }
+      .btn-dot.on { background: #34d399; color: #06281d; }
+      code { background: #1b1f29; padding: 0.1rem 0.35rem; border-radius: 4px; }
+      details { margin-top: 2rem; color: #8b93a7; font-size: 0.85rem; }
+    </style>
+  </head>
+  <body>
+    <h1>VRC Dongle — WebHID</h1>
+    <p class="sub">
+      Virtual RC USB (VID 0x07C0 / PID 0x1125) — read RC transmitter channels
+      directly in the browser. Chrome / Edge only.
+    </p>
+
+    <button id="connect">동글 연결</button>
+    <button id="disconnect" class="secondary" disabled>연결 해제</button>
+
+    <div id="status">대기 중 — "동글 연결"을 누르고 목록에서 Virtual RC USB를 선택하세요.</div>
+
+    <div class="channel">
+      <div class="label"><span>CH1 / X (steering)</span><span id="v-x">0</span></div>
+      <div class="track"><div class="center-mark"></div><div class="fill" id="f-x"></div></div>
+    </div>
+    <div class="channel">
+      <div class="label"><span>CH2 / Y (throttle)</span><span id="v-y">0</span></div>
+      <div class="track"><div class="center-mark"></div><div class="fill" id="f-y"></div></div>
+    </div>
+    <div class="channel">
+      <div class="label"><span>CH3 / Z (aux)</span><span id="v-z">0</span></div>
+      <div class="track"><div class="center-mark"></div><div class="fill" id="f-z"></div></div>
+    </div>
+
+    <div class="buttons" id="buttons">
+      <div class="btn-dot" id="b0">B1</div>
+      <div class="btn-dot" id="b1">B2</div>
+    </div>
+
+    <details>
+      <summary>게임에 붙이는 법</summary>
+      <p>
+        <code>vrc-webhid.js</code>를 import 한 뒤, 사용자 클릭에서
+        <code>connectVRC()</code>를 호출하고, 게임 루프에서
+        <code>vrc.norm.x</code> / <code>vrc.norm.y</code> (−1..1) 를 읽으세요.
+        또는 <code>window.addEventListener('vrc-channels', e =&gt; ...)</code>.
+      </p>
+    </details>
+
+    <script type="module">
+      import { connectVRC, disconnectVRC, vrc, AXIS_MAX } from './vrc-webhid.js';
+
+      const $ = (id) => document.getElementById(id);
+      const statusEl = $('status');
+      const connectBtn = $('connect');
+      const disconnectBtn = $('disconnect');
+
+      if (!('hid' in navigator)) {
+        statusEl.innerHTML =
+          '<span class="err">이 브라우저는 WebHID를 지원하지 않습니다. Chrome 또는 Edge를 사용하세요.</span>';
+        connectBtn.disabled = true;
+      }
+
+      connectBtn.addEventListener('click', async () => {
+        try {
+          const devices = await connectVRC();
+          statusEl.innerHTML = `<span class="ok">연결됨:</span> ${devices
+            .map((d) => d.productName || 'Virtual RC USB')
+            .join(', ')}`;
+          connectBtn.disabled = true;
+          disconnectBtn.disabled = false;
+        } catch (err) {
+          statusEl.innerHTML = `<span class="err">${err.message}</span>`;
+        }
+      });
+
+      disconnectBtn.addEventListener('click', async () => {
+        await disconnectVRC();
+        statusEl.textContent = '연결 해제됨.';
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+      });
+
+      window.addEventListener('vrc-disconnected', () => {
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+      });
+
+      // Render the latest state every animation frame.
+      function setChannel(axis) {
+        const val = vrc.raw[axis];
+        $(`v-${axis}`).textContent = val;
+        // fill from center: right inset shrinks as value grows
+        $(`f-${axis}`).style.right = `${100 - (val / AXIS_MAX) * 100}%`;
+      }
+      function tick() {
+        setChannel('x');
+        setChannel('y');
+        setChannel('z');
+        $('b0').classList.toggle('on', vrc.buttons[0]);
+        $('b1').classList.toggle('on', vrc.buttons[1]);
+        requestAnimationFrame(tick);
+      }
+      tick();
+    </script>
+  </body>
+</html>

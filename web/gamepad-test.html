@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gamepad test — does the VRC dongle show up?</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        font-family: -apple-system, system-ui, sans-serif;
+        background: #0f1115; color: #e6e9ef; margin: 0; padding: 2rem;
+        max-width: 760px; margin-inline: auto;
+      }
+      h1 { font-size: 1.25rem; margin: 0 0 0.25rem; }
+      p.sub { color: #8b93a7; margin: 0 0 1.25rem; }
+      .pad { background: #161922; border: 1px solid #232838; border-radius: 10px; padding: 1rem 1.1rem; margin: 1rem 0; }
+      .pad.vrc { border-color: #34d399; }
+      .pad h2 { font-size: 0.95rem; margin: 0 0 0.5rem; word-break: break-all; }
+      .pad .meta { color: #8b93a7; font-size: 0.8rem; margin-bottom: 0.75rem; }
+      .row { display: flex; align-items: center; gap: 0.6rem; margin: 0.3rem 0; font-variant-numeric: tabular-nums; font-size: 0.8rem; }
+      .row .name { width: 64px; color: #aab2c5; }
+      .row .val { width: 56px; text-align: right; color: #e6e9ef; }
+      .track { position: relative; flex: 1; height: 14px; background: #1b1f29; border-radius: 7px; overflow: hidden; }
+      .fill { position: absolute; top: 0; bottom: 0; left: 50%; background: #3b82f6; }
+      .center-mark { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #4b5366; }
+      .btns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 0.6rem; }
+      .b { min-width: 22px; height: 22px; padding: 0 4px; border-radius: 5px; background: #1b1f29; color: #8b93a7; font-size: 0.65rem; display: grid; place-items: center; }
+      .b.on { background: #34d399; color: #06281d; }
+      #empty { color: #f59e0b; }
+      code { background: #1b1f29; padding: 0.1rem 0.35rem; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>Gamepad API 테스트</h1>
+    <p class="sub">
+      <b>Chrome/Edge</b>에서 열고 조종기를 움직이세요. 각 축의 <b>움직인 범위(min→max)</b>를 자동 기록합니다.
+      <b>핸들을 좌우 끝까지</b> 돌리고 <b>스로틀을 끝까지</b> 당긴 뒤, 이 화면을 캡처해서 보내주세요.
+      방금 움직인 축은 노란색으로 강조됩니다.
+    </p>
+    <button id="reset">범위 초기화</button>
+    <div id="list"></div>
+    <p id="empty">아직 게임패드 없음 — 조종기를 움직여 보세요.</p>
+
+    <script>
+      const listEl = document.getElementById('list');
+      const emptyEl = document.getElementById('empty');
+
+      // Per-gamepad, per-axis recorded range + recent-movement tracking.
+      const ranges = {}; // id -> [{min,max,last,movedAt}]
+      function track(gp) {
+        let r = ranges[gp.id];
+        if (!r || r.length !== gp.axes.length) {
+          r = gp.axes.map((v) => ({ min: v, max: v, last: v, movedAt: 0 }));
+          ranges[gp.id] = r;
+        }
+        const now = performance.now();
+        gp.axes.forEach((v, i) => {
+          if (v < r[i].min) r[i].min = v;
+          if (v > r[i].max) r[i].max = v;
+          if (Math.abs(v - r[i].last) > 0.02) r[i].movedAt = now;
+          r[i].last = v;
+        });
+        return r;
+      }
+      document.getElementById('reset').onclick = () => {
+        for (const k of Object.keys(ranges)) delete ranges[k];
+      };
+
+      function isVRC(id) {
+        // Chrome gamepad id usually contains vendor/product like "07c0-1125" or "Virtual RC".
+        return /virtual rc/i.test(id) || /07c0/i.test(id) || /(^|[^0-9a-f])1984-/i.test(id);
+      }
+
+      function render() {
+        const pads = [...navigator.getGamepads()].filter(Boolean);
+        emptyEl.style.display = pads.length ? 'none' : 'block';
+        listEl.innerHTML = '';
+        for (const gp of pads) {
+          const card = document.createElement('div');
+          card.className = 'pad' + (isVRC(gp.id) ? ' vrc' : '');
+          const r = track(gp);
+          const now = performance.now();
+          const axes = gp.axes
+            .map((a, i) => {
+              const pct = ((a + 1) / 2) * 100;
+              const left = Math.min(50, pct);
+              const width = Math.abs(pct - 50);
+              const moved = now - r[i].movedAt < 600;
+              const range = `${r[i].min.toFixed(2)} → ${r[i].max.toFixed(2)}`;
+              return `<div class="row"${moved ? ' style="background:#3a3413;border-radius:6px"' : ''}>
+                <span class="name">axis ${i}${moved ? ' ◀' : ''}</span>
+                <div class="track"><div class="center-mark"></div>
+                <div class="fill" style="left:${left}%;width:${width}%"></div></div>
+                <span class="val">${a.toFixed(3)}</span>
+                <span class="val" style="width:96px;color:#8b93a7">${range}</span></div>`;
+            })
+            .join('');
+          const btns = gp.buttons
+            .map((b, i) => `<div class="b ${b.pressed ? 'on' : ''}">${i}${b.value && b.value !== 1 ? ':' + b.value.toFixed(2) : ''}</div>`)
+            .join('');
+          card.innerHTML = `<h2>${gp.id}</h2>
+            <div class="meta">index ${gp.index} · mapping "${gp.mapping || '(none)'}" · ${gp.axes.length} axes · ${gp.buttons.length} buttons</div>
+            ${axes}<div class="btns">${btns}</div>`;
+          listEl.appendChild(card);
+        }
+        requestAnimationFrame(render);
+      }
+
+      window.addEventListener('gamepadconnected', (e) => console.log('gamepadconnected:', e.gamepad.id));
+      requestAnimationFrame(render);
+    </script>
+  </body>
+</html>
